@@ -103,4 +103,8 @@
       <Filter>Resource Files</Filter>
     </Image>
   </ItemGroup>
+  <ItemGroup>
+    <FxCompile Include="src\Gui\BasicPixelShader.hlsl" />
+    <FxCompile Include="src\Gui\BasicVertexShader.hlsl" />
+  </ItemGroup>
 </Project>

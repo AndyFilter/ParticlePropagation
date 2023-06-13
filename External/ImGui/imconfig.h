@@ -87,6 +87,7 @@
         constexpr ImVec2 operator+(const ImVec2 other) { return ImVec2(x+other.x, y+other.y); } \
         constexpr ImVec2 operator-(const ImVec2 other) { return ImVec2(x-other.x, y-other.y); } \
         constexpr ImVec2 operator*(const ImVec2 other) { return ImVec2(x*other.x, y*other.y); } \
+        constexpr ImVec2 operator/(const ImVec2 other) { return ImVec2(x/other.x, y/other.y); } \
         constexpr ImVec2 operator*(const float scalar) { return ImVec2(x*scalar, y*scalar); } \
         float Magnitude() {return sqrtf((x*x) + (y*y));} \
         constexpr ImVec2 Normalized() {return ImVec2(x/this->Magnitude(), y/this->Magnitude());} \

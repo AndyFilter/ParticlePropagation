@@ -6,10 +6,6 @@
 #include "../External/ImGui/imgui_extensions.h"
 #include "Physics/physics.h"
 
-/*
-Conservation of energy
-*/
-
 uint64_t lastFrameTime = 1, lastFrame = 0, totalFrames = 0, lastPhysicsStep = 0, totalSimStartTime = 0;
 int FramesPerSecond = 72;
 int physicsUpdateFrequency = 360;
@@ -769,14 +765,14 @@ int OnGui()
 		{
 			if (advSettings.useLowQuality)
 			{
-				// Kod poniżej jest odpowiedni funkji "AddNgonFilled", tylko manualnie przed pętlą alokujemy pamięć.
-				//->AddNgonFilled(pos, 2, color, 3);
-				for (int i = 0; i <= 2; i++)
-				{
-					const float a = ((float)i / 2.f) * (4.18879020f); // wartości stałe, więc je obliczyłem wcześniej (więcej w AddNgonFilled)
-					draw_list->_Path.push_back(ImVec2(pos.x + ImCos(a) * advSettings.particleRenderSize, pos.y + ImSin(a) * advSettings.particleRenderSize));
-				}
-				draw_list->PathFillConvex(color);
+				//// Kod poniżej jest odpowiedni funkji "AddNgonFilled", tylko manualnie przed pętlą alokujemy pamięć.
+				////->AddNgonFilled(pos, 2, color, 3);
+				//for (int i = 0; i <= 2; i++)
+				//{
+				//	const float a = ((float)i / 2.f) * (4.18879020f); // wartości stałe, więc je obliczyłem wcześniej (więcej w AddNgonFilled)
+				//	draw_list->_Path.push_back(ImVec2(pos.x + ImCos(a) * advSettings.particleRenderSize, pos.y + ImSin(a) * advSettings.particleRenderSize));
+				//}
+				//draw_list->PathFillConvex(color);
 			}
 			else
 				draw_list->AddCircleFilled(pos, advSettings.particleRenderSize, color);

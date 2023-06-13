@@ -10,6 +10,8 @@
 #define RAD_2_DEG 57.295779513f
 #define M_PI (3.1415927f)
 
+#define MAX_PARTICLES (1000000)
+
 #define MULTI_THREADED // Bez tego program sie NIE skompiluje
 //#define parallel_multi_threaded
 

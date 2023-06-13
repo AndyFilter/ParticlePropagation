@@ -1,13 +1,18 @@
-﻿#include "../External/ImGui/imgui.h"
-#include "../External/ImGui/imgui_impl_win32.h"
-#include "../External/ImGui/imgui_impl_dx11.h"
+﻿#include "../../External/ImGui/imgui.h"
+#include "../../External/ImGui/imgui_impl_win32.h"
+#include "../../External/ImGui/imgui_impl_dx11.h"
 #include <tchar.h>
 #include <iostream>
+#include <string>
+#include <direct.h>
+#include <d3d11.h>
+#include <d3dcompiler.h>
+
 
 #include "gui.h"
 #include "../Physics/physics.h"
-#include "../External/IBMPlexMono.h"
-#include "../resource.h"
+#include "../../External/IBMPlexMono.h"
+#include "../../resource.h"
 
 using namespace GUI;
 
@@ -22,8 +27,8 @@ void CreateRenderTarget();
 void CleanupRenderTarget();
 LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
-const int windowX = 1920+16, windowY = 1080+39;
-//const int windowX = 1200 + 16, windowY = 800 + 39;
+//const int windowX = 1920+16, windowY = 1080+39;
+const int windowX = 1200 + 16, windowY = 800 + 39;
 
 float defaultFontSize = 16.0f;
 
@@ -70,6 +75,135 @@ HWND GUI::Setup(int (*OnGuiFunc)())
 	ImGui_ImplWin32_Init(hwnd);
 	ImGui_ImplDX11_Init(g_pd3dDevice, g_pd3dDeviceContext);
 
+
+	g_pViewport = new D3D11_VIEWPORT();
+	g_pViewport->TopLeftX = 0;
+	g_pViewport->TopLeftY = 0;
+	g_pViewport->Width = (FLOAT)windowX-16;
+	g_pViewport->Height = (FLOAT)windowY-39;
+	g_pViewport->MinDepth = 0.f;
+	g_pViewport->MaxDepth = 1.f;
+	g_pd3dDeviceContext->RSSetViewports(1, g_pViewport);
+
+	aspect = g_pViewport->Width / g_pViewport->Height;
+
+
+	// Compile and create vertex shader
+
+	const float scaleX = particleScale;
+	const float scale = particleScale * aspect;
+	Vertex myVertices[] = {
+	{ -scaleX,  scale, 0.f, {1,0,0}, {0.f, 1.f} },
+	{ scaleX, -scale, 0.f, {0,1,0}, {1.0f, 0.f} },
+	{ -scaleX, -scale, 0.f, {0,0,0}, { 0.f, 0.f} },
+	{ -scaleX,  scale, 0.f, {1,0,0}, {0.0f, 1.f} },
+	{ scaleX, scale, 0.f, {0,1,0}, {1.0f, 1.f} },
+	{ scaleX, -scale, 0.f, {0,0,0}, {1.f, 0.f} },
+	};
+
+	D3D11_BUFFER_DESC vertBufDesc;
+	ZeroMemory(&vertBufDesc, sizeof(vertBufDesc));
+	vertBufDesc.ByteWidth = sizeof(Vertex) * _countof(myVertices);
+	vertBufDesc.Usage = D3D11_USAGE_DEFAULT;
+	vertBufDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+
+	D3D11_SUBRESOURCE_DATA bufData;
+	ZeroMemory(&bufData, sizeof(bufData));
+	bufData.pSysMem = myVertices;
+
+	HRESULT hr = g_pd3dDevice->CreateBuffer(&vertBufDesc, &bufData, &g_VertexBuffer);
+	assert(SUCCEEDED(hr));
+
+
+	// Create Instance Buffer
+
+	D3D11_BUFFER_DESC instBufDesc;
+	ZeroMemory(&instBufDesc, sizeof(instBufDesc));
+	instBufDesc.ByteWidth = sizeof(Instance) * MAX_PARTICLES;
+	instBufDesc.Usage = D3D11_USAGE_DYNAMIC;
+	instBufDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+	instBufDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+	//instBufDesc.StructureByteStride = 4;
+
+	hr = g_pd3dDevice->CreateBuffer(&instBufDesc, 0, &g_InstanceBuffer);
+	assert(SUCCEEDED(hr));
+
+
+	// Create Constant Buffer
+
+	D3D11_BUFFER_DESC cbDesc;
+	ZeroMemory(&cbDesc, sizeof(cbDesc));
+	cbDesc.ByteWidth = GET_ACTUAL_CB_SIZE(cb_Info);
+	cbDesc.Usage = D3D11_USAGE_DYNAMIC;
+	cbDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+	cbDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+
+	hr = g_pd3dDevice->CreateBuffer(&cbDesc, 0, &g_ConstantBuffer);
+	assert(SUCCEEDED(hr));
+
+
+	// Compile and create vertex shader
+
+	std::string path = "";
+	char pBuf[1024];
+
+	auto _tmp = _getcwd(pBuf, 1024);
+	path = pBuf;
+	path += "\\";
+	std::wstring wpath = std::wstring(path.begin(), path.end());
+
+	std::wstring vertFragPath = wpath + L"src\\Gui\\BasicVertexShader.hlsl";
+
+	ID3D10Blob* errorBlob = 0;
+
+	hr = D3DCompileFromFile(vertFragPath.c_str(), nullptr, nullptr, "main",
+		"vs_5_0", 0, 0, &g_VertexShaderCode,
+		&errorBlob);
+
+	assert(SUCCEEDED(hr));
+
+	hr = g_pd3dDevice->CreateVertexShader(g_VertexShaderCode->GetBufferPointer(), g_VertexShaderCode->GetBufferSize(), 0, &g_VertexShader);
+	assert(SUCCEEDED(hr));
+
+	if (errorBlob) errorBlob->Release();
+
+
+	// Compile and create pixel shader
+
+	std::wstring pixelFragPath = wpath + L"src\\Gui\\BasicPixelShader.hlsl";
+
+	errorBlob = 0;
+
+	hr = D3DCompileFromFile(pixelFragPath.c_str(), nullptr, nullptr, "main",
+		"ps_5_0", 0, 0, &g_PixelShaderCode,
+		&errorBlob);
+	assert(SUCCEEDED(hr));
+
+	hr = g_pd3dDevice->CreatePixelShader(g_PixelShaderCode->GetBufferPointer(), g_PixelShaderCode->GetBufferSize(), 0, &g_PixelShader);
+	assert(SUCCEEDED(hr));
+
+	if (errorBlob) errorBlob->Release();
+
+
+	// Create input layout
+
+	D3D11_INPUT_ELEMENT_DESC inputDesc[] = {
+		{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+		{ "COLOR",    0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+		{ "TEXCOORD",    0, DXGI_FORMAT_R32G32_FLOAT, 0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+
+		//{ "SV_InstanceID", 0, DXGI_FORMAT_R32_UINT, 0, D3D11_APPEND_ALIGNED_ELEMENT,	D3D11_INPUT_PER_VERTEX_DATA},
+
+		// Data from the instance buffer
+		{ "I_MOTION_EQ",	0,	DXGI_FORMAT_R32G32B32A32_FLOAT,	1,	0,								D3D11_INPUT_PER_INSTANCE_DATA,	1},
+		{ "I_TIME_CREATED",	0,	DXGI_FORMAT_R32_FLOAT,			1,	D3D11_APPEND_ALIGNED_ELEMENT,	D3D11_INPUT_PER_INSTANCE_DATA,	1},
+		{ "I_COLOR",		0,	DXGI_FORMAT_R32G32B32_FLOAT,	1,	D3D11_APPEND_ALIGNED_ELEMENT,	D3D11_INPUT_PER_INSTANCE_DATA,	1}
+	};
+
+	hr = g_pd3dDevice->CreateInputLayout(inputDesc, _countof(inputDesc), g_VertexShaderCode->GetBufferPointer(), g_VertexShaderCode->GetBufferSize(), &g_InputLayout);
+	assert(SUCCEEDED(hr));
+
+#pragma region style
 	// Własny styl
 	ImGuiStyle& style = ImGui::GetStyle();
 	style.WindowRounding = 6.0f;
@@ -106,7 +240,7 @@ HWND GUI::Setup(int (*OnGuiFunc)())
 	colors[ImGuiCol_CheckMark] = ImVec4(0.36f, 0.81f, 0.98f, 1.00f);
 	colors[ImGuiCol_SliderGrab] = ImVec4(0.33f, 0.76f, 0.91f, 0.96f);
 	colors[ImGuiCol_SliderGrabActive] = ImVec4(0.50f, 0.86f, 1.00f, 1.00f);
-
+#pragma endregion
 
 	return hwnd;
 }
@@ -148,6 +282,57 @@ int GUI::DrawGui() noexcept
 	if (done)
 		return 1;
 
+
+	D3D11_MAPPED_SUBRESOURCE resource;
+	g_pd3dDeviceContext->Map(g_InstanceBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &resource);
+
+	Physics::is_accessing = true;
+	Instance* instances = (Instance*)resource.pData;//new Instance[Physics::particles.size()];
+	//memset(instances, 0, sizeof(Instance) * 1);
+	for (int i = 0; i < Physics::particles.size(); i++)
+	{
+		auto& p = Physics::particles[i];
+		instances[i].motionEquation = p.me;
+		instances[i].timeCreated = p.timeCreated;
+	}
+	Physics::is_accessing = false;
+
+	//memcpy(resource.pData, instances, Physics::particles.size() * sizeof(Instance));
+	g_pd3dDeviceContext->Unmap(g_InstanceBuffer, 0);
+
+
+	// Update Constant Buffer
+	g_pd3dDeviceContext->Map(g_ConstantBuffer, 0, D3D11_MAP_WRITE_DISCARD, 0, &resource);
+	cb_Info* cbData = (cb_Info*)resource.pData;
+	cbData->physTime = Physics::simulationTime;
+	memcpy(&cbData->simSize, &Physics::boundsExtend, sizeof(float) * 2);
+	g_pd3dDeviceContext->Unmap(g_ConstantBuffer, 0);
+
+
+	// Need to update Vertex Buffer after a resize!
+
+
+	const float clear_color_with_alpha[4] = { 0.07f,0.07f,0.07f,1 };
+	g_pd3dDeviceContext->ClearRenderTargetView(g_mainRenderTargetView, clear_color_with_alpha);
+
+	// Set all the buffers and shaders
+	g_pd3dDeviceContext->IASetInputLayout(g_InputLayout);
+	g_pd3dDeviceContext->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+	//UINT vbStride = sizeof(Vertex), vbOffset = 0;
+	UINT Strides[] = { sizeof(Vertex), sizeof(Instance) };
+	UINT Offsets[] = { 0, 0 };
+	ID3D11Buffer* Buffers[] = { g_VertexBuffer, g_InstanceBuffer };
+	g_pd3dDeviceContext->IASetVertexBuffers(0, _countof(Strides), Buffers, Strides, Offsets);
+	//g_pd3dDeviceContext->IASetVertexBuffers(0, 1, &g_VertexBuffer, &vbStride, &vbOffset);
+	g_pd3dDeviceContext->VSSetConstantBuffers(0, 1, &g_ConstantBuffer);
+	g_pd3dDeviceContext->VSSetShader(g_VertexShader, 0, 0);
+	g_pd3dDeviceContext->PSSetShader(g_PixelShader, 0, 0);
+
+	g_pd3dDeviceContext->DrawInstanced(6, Physics::particles.size(), 0, 0);
+	//g_pd3dDeviceContext->Draw(6, 0);
+
+
 	// Start the Dear ImGui frame
 	ImGui_ImplDX11_NewFrame();
 	ImGui_ImplWin32_NewFrame();
@@ -159,12 +344,12 @@ int GUI::DrawGui() noexcept
 	ImGui::SetNextWindowPos({ 0,0 });
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0);
 	ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0,0});
-	ImGui::PushStyleColor(ImGuiCol_WindowBg, { 0.07f,0.07f,0.07f,1 });
+	ImGui::PushStyleColor(ImGuiCol_WindowBg, { 0.07f,0.07f,0.07f,0 });
 	ImGui::Begin("Window", &showMainWindow, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoBringToFrontOnFocus);
 	ImGui::PopStyleVar(2);
 	ImGui::PopStyleColor();
 
-	// Call the GUI function in main file
+	// Call the GUI function in main file.
 	if (int mainGui = mainGuiFunc())
 		return mainGui;
 
@@ -176,10 +361,14 @@ int GUI::DrawGui() noexcept
 
 	// Rendering
 	ImGui::Render();
-	//const float clear_color_with_alpha[4] = { clear_color.x * clear_color.w, clear_color.y * clear_color.w, clear_color.z * clear_color.w, clear_color.w };
+	//const float clear_color_with_alpha[4] = { 0.07f,0.07f,0.07f,1 };
 	g_pd3dDeviceContext->OMSetRenderTargets(1, &g_mainRenderTargetView, NULL);
 	//g_pd3dDeviceContext->ClearRenderTargetView(g_mainRenderTargetView, clear_color_with_alpha);
 	ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+
+	//g_pd3dDeviceContext->ClearRenderTargetView(g_mainRenderTargetView, clear_color_with_alpha);
+
+
 	g_pSwapChain->Present(VSyncFrame ? *VSyncFrame : 0, 0);
 	return 0;
 }
@@ -290,6 +479,11 @@ LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		{
 			CleanupRenderTarget();
 			g_pSwapChain->ResizeBuffers(0, (UINT)LOWORD(lParam), (UINT)HIWORD(lParam), DXGI_FORMAT_UNKNOWN, 0);
+			if (g_pViewport) {
+				g_pViewport->Width = (UINT)LOWORD(lParam);
+				g_pViewport->Height = (UINT)HIWORD(lParam);
+				g_pd3dDeviceContext->RSSetViewports(1, g_pViewport);
+			}
 			CreateRenderTarget();
 		}
 		return 0;
